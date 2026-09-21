@@ -16,6 +16,10 @@ class ResearchAnalysis:
     win_rate: float
     max_gain: float
     max_drawdown: float
+    std_return: float
+    sharpe_ratio: float | None
+    profit_factor: float | None
+    expectancy: float
 
 
 @dataclass(frozen=True)
@@ -47,27 +51,17 @@ class ResearchAnalyzer:
         if not isinstance(mask, pd.Series):
             raise ValueError("condition must return a pandas Series")
 
+        mask = mask.astype(bool)
+
         selected = frame.loc[
-            mask.astype(bool),
+            mask,
             future_return_column,
         ].dropna()
 
         if selected.empty:
             raise ValueError("no valid samples matched the condition")
 
-        cumulative = (1 + selected).cumprod()
-        running_peak = cumulative.cummax()
-        drawdown = cumulative / running_peak - 1
-
-        return ResearchAnalysis(
-            sample_size=len(selected),
-            mean_return=float(selected.mean()),
-            median_return=float(selected.median()),
-            win_rate=float((selected > 0).mean()),
-            max_gain=float(selected.max()),
-            max_drawdown=float(drawdown.min()),
-        )
-
+        return self._build_analysis(selected)
 
     def compare(
         self,
@@ -115,4 +109,52 @@ class ResearchAnalyzer:
                 condition_result.win_rate
                 - control_result.win_rate
             ),
+        )
+
+    @staticmethod
+    def _build_analysis(
+        selected: pd.Series,
+    ) -> ResearchAnalysis:
+        """从有效收益序列计算完整研究统计量。"""
+
+        sample_size = len(selected)
+
+        mean_return = float(selected.mean())
+        median_return = float(selected.median())
+        win_rate = float((selected > 0).mean())
+        max_gain = float(selected.max())
+        std_return = float(selected.std(ddof=1))
+
+        if pd.isna(std_return) or abs(std_return) < 1e-12:
+            sharpe_ratio = None
+        else:
+            sharpe_ratio = mean_return / std_return
+
+        gains = selected[selected > 0].sum()
+        losses = selected[selected < 0].sum()
+
+        if losses == 0:
+            profit_factor = None if gains == 0 else float("inf")
+        else:
+            profit_factor = float(gains / abs(losses))
+
+        expectancy = mean_return
+
+        cumulative = (1 + selected).cumprod()
+        running_peak = cumulative.cummax()
+        drawdown = cumulative / running_peak - 1
+
+        max_drawdown = float(drawdown.min())
+
+        return ResearchAnalysis(
+            sample_size=sample_size,
+            mean_return=mean_return,
+            median_return=median_return,
+            win_rate=win_rate,
+            max_gain=max_gain,
+            max_drawdown=max_drawdown,
+            std_return=std_return,
+            sharpe_ratio=sharpe_ratio,
+            profit_factor=profit_factor,
+            expectancy=expectancy,
         )

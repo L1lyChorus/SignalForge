@@ -219,3 +219,81 @@ def test_compare_rejects_invalid_condition():
             frame,
             lambda data: True,
         )
+
+
+def test_analysis_calculates_risk_adjusted_metrics():
+    frame = pd.DataFrame(
+        {
+            "future_return_5d": [
+                0.10,
+                0.05,
+                -0.02,
+                0.03,
+            ]
+        }
+    )
+
+    result = ResearchAnalyzer().analyze(
+        frame,
+        lambda data: pd.Series(True, index=data.index),
+    )
+
+    expected_mean = 0.04
+    expected_std = pd.Series(
+        [0.10, 0.05, -0.02, 0.03]
+    ).std(ddof=1)
+
+    assert result.mean_return == pytest.approx(expected_mean)
+    assert result.std_return == pytest.approx(expected_std)
+    assert result.sharpe_ratio == pytest.approx(
+        expected_mean / expected_std
+    )
+    assert result.expectancy == pytest.approx(expected_mean)
+
+
+def test_analysis_calculates_profit_factor():
+    frame = pd.DataFrame(
+        {
+            "future_return_5d": [
+                0.10,
+                0.05,
+                -0.02,
+                -0.03,
+            ]
+        }
+    )
+
+    result = ResearchAnalyzer().analyze(
+        frame,
+        lambda data: pd.Series(True, index=data.index),
+    )
+
+    expected_profit_factor = (
+        (0.10 + 0.05) / (0.02 + 0.03)
+    )
+
+    assert result.profit_factor == pytest.approx(
+        expected_profit_factor
+    )
+
+
+def test_analysis_handles_zero_return_volatility():
+    frame = pd.DataFrame(
+        {
+            "future_return_5d": [
+                0.05,
+                0.05,
+                0.05,
+            ]
+        }
+    )
+
+    result = ResearchAnalyzer().analyze(
+        frame,
+        lambda data: pd.Series(True, index=data.index),
+    )
+
+    assert result.std_return == pytest.approx(0.0)
+    assert result.sharpe_ratio is None
+    assert result.profit_factor == float("inf")
+    assert result.expectancy == pytest.approx(0.05)
