@@ -22,11 +22,9 @@ def test_basic_features_are_calculated():
     assert "close_location" in result.columns
     assert "volume_change" in result.columns
     assert "volatility_5d" in result.columns
-    assert "future_return_1d" in result.columns
-    assert "future_return_5d" in result.columns
 
 
-def test_return_and_future_return():
+def test_return_1d():
     frame = pd.DataFrame(
         {
             "open": [10, 11, 12],
@@ -40,7 +38,6 @@ def test_return_and_future_return():
     result = add_basic_features(frame)
 
     assert result.loc[1, "return_1d"] == pytest.approx(0.1)
-    assert result.loc[0, "future_return_1d"] == pytest.approx(0.1)
 
 
 def test_close_location():

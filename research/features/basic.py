@@ -22,7 +22,6 @@ def add_basic_features(frame: pd.DataFrame) -> pd.DataFrame:
 
     result = frame.copy()
 
-    previous_close = result["close"].shift(1)
 
     result["return_1d"] = result["close"].pct_change()
 
@@ -44,12 +43,6 @@ def add_basic_features(frame: pd.DataFrame) -> pd.DataFrame:
         .std()
     )
 
-    result["future_return_1d"] = (
-        result["close"].shift(-1) / result["close"] - 1
-    )
 
-    result["future_return_5d"] = (
-        result["close"].shift(-5) / result["close"] - 1
-    )
 
     return result
