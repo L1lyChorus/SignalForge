@@ -7,25 +7,41 @@ import pandas as pd
 from research.analyzer import ResearchAnalysis, ResearchAnalyzer
 from research.features.basic import add_basic_features
 from research.features.candlestick import add_candlestick_features
+from research.labels import FutureReturnLabelBuilder
 from research.regime.detector import MarketRegimeDetector
 
 
 class ResearchPipeline:
-    """统一执行市场特征计算与条件研究。"""
+    """统一执行市场特征、研究标签与条件研究。"""
 
     def __init__(
         self,
         analyzer: ResearchAnalyzer | None = None,
         regime_detector: MarketRegimeDetector | None = None,
+        label_builder: FutureReturnLabelBuilder | None = None,
     ) -> None:
         self.analyzer = analyzer or ResearchAnalyzer()
         self.regime_detector = regime_detector or MarketRegimeDetector()
+        self.label_builder = label_builder or FutureReturnLabelBuilder()
 
-    def prepare_features(self, frame: pd.DataFrame) -> pd.DataFrame:
-        """计算基础特征和 K 线结构特征。"""
+    def prepare_features(
+        self,
+        frame: pd.DataFrame,
+        label_horizons: tuple[int, ...] = (1, 5),
+    ) -> pd.DataFrame:
+        """计算基础特征、研究标签、K线结构和市场状态。"""
+
         result = add_basic_features(frame)
+
+        for horizon in label_horizons:
+            result = self.label_builder.build(
+                result,
+                horizon=horizon,
+            )
+
         result = add_candlestick_features(result)
         result = self.regime_detector.detect(result)
+
         return result
 
     def analyze(
@@ -35,6 +51,7 @@ class ResearchPipeline:
         future_return_column: str = "future_return_5d",
     ) -> ResearchAnalysis:
         """计算特征后执行条件研究。"""
+
         featured = self.prepare_features(frame)
 
         return self.analyzer.analyze(
