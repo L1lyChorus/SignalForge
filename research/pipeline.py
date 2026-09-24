@@ -9,6 +9,8 @@ from research.features.basic import add_basic_features
 from research.features.candlestick import add_candlestick_features
 from research.labels import FutureReturnLabelBuilder
 from research.regime.detector import MarketRegimeDetector
+from research.regime.volume_price import VolumePriceStructureDetector
+from research.regime.market_structure import MarketStructureDetector
 
 
 class ResearchPipeline:
@@ -19,10 +21,20 @@ class ResearchPipeline:
         analyzer: ResearchAnalyzer | None = None,
         regime_detector: MarketRegimeDetector | None = None,
         label_builder: FutureReturnLabelBuilder | None = None,
+        volume_price_detector: VolumePriceStructureDetector | None = None,
+        market_structure_detector: MarketStructureDetector | None = None,
     ) -> None:
         self.analyzer = analyzer or ResearchAnalyzer()
         self.regime_detector = regime_detector or MarketRegimeDetector()
         self.label_builder = label_builder or FutureReturnLabelBuilder()
+
+        self.volume_price_detector = (
+            volume_price_detector or VolumePriceStructureDetector()
+        )
+
+        self.market_structure_detector = (
+            market_structure_detector or MarketStructureDetector()
+        )
 
     def prepare_features(
         self,
@@ -40,7 +52,16 @@ class ResearchPipeline:
             )
 
         result = add_candlestick_features(result)
+
         result = self.regime_detector.detect(result)
+
+        result["volume_price_state"] = (
+            self.volume_price_detector.detect(result)
+        )
+
+        result["market_structure_state"] = (
+            self.market_structure_detector.detect(result)
+        )
 
         return result
 
