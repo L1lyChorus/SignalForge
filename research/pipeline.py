@@ -11,6 +11,11 @@ from research.labels import FutureReturnLabelBuilder
 from research.regime.detector import MarketRegimeDetector
 from research.regime.volume_price import VolumePriceStructureDetector
 from research.regime.market_structure import MarketStructureDetector
+from research.structure.analyzer import StructureAnalyzer
+
+from research.transition.detector import (
+    MarketStructureTransitionDetector,
+)
 
 
 class ResearchPipeline:
@@ -23,6 +28,8 @@ class ResearchPipeline:
         label_builder: FutureReturnLabelBuilder | None = None,
         volume_price_detector: VolumePriceStructureDetector | None = None,
         market_structure_detector: MarketStructureDetector | None = None,
+        structure_analyzer: StructureAnalyzer | None = None,
+        transition_detector: MarketStructureTransitionDetector | None = None,
     ) -> None:
         self.analyzer = analyzer or ResearchAnalyzer()
         self.regime_detector = regime_detector or MarketRegimeDetector()
@@ -34,6 +41,13 @@ class ResearchPipeline:
 
         self.market_structure_detector = (
             market_structure_detector or MarketStructureDetector()
+        )
+        self.structure_analyzer = (
+            structure_analyzer or StructureAnalyzer()
+        )
+
+        self.transition_detector = (
+            transition_detector or MarketStructureTransitionDetector()
         )
 
     def prepare_features(
@@ -63,7 +77,39 @@ class ResearchPipeline:
             self.market_structure_detector.detect(result)
         )
 
+        result = self.transition_detector.detect(result)
+
         return result
+
+    def analyze_structure(
+        self,
+        frame: pd.DataFrame,
+        structure_state: str,
+        future_return_columns: tuple[str, ...] = (
+            "future_return_1d",
+            "future_return_5d",
+        ),
+    ):
+        """研究某一种市场结构出现后的未来收益。"""
+
+        featured = self.prepare_features(frame)
+
+        if "market_structure_state" not in featured.columns:
+            raise ValueError(
+                "missing required column: market_structure_state"
+            )
+
+        condition = (
+            featured["market_structure_state"]
+            == structure_state
+        )
+
+        return self.structure_analyzer.analyze(
+            featured,
+            condition,
+            future_return_columns=future_return_columns,
+            condition_name=structure_state,
+        )
 
     def analyze(
         self,
