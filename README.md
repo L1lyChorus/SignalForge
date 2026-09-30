@@ -1,189 +1,311 @@
-#  SignalForge
+# SignalForge
 
-Step 1 establishes the project foundation for a paper-trading MVP. It provides
-configuration, logging, SQLite schema initialization, and package boundaries for
-future business logic and data access.
+**量化研究与市场结构分析框架**
 
-## Requirements
+SignalForge 是一个持续开发中的 Python 量化研究项目，主要用于将历史市场数据转化为**结构化、可测试、可复现的研究流程**。
 
-- Python 3.9.6+
-- Dependencies in `requirements.txt`
+目前项目重点围绕：
 
-## Setup
+* 市场数据处理与校验
+* 量价关系研究
+* 市场结构分析
+* 市场状态转变检测
+* Research Feature / Label 构建
+* 研究验证
+* 风险指标与评估
+* Paper Trading
 
-```bash
-python3.9 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python main.py
-```
+> 🚧 **项目状态：持续开发中（Active Development）**
+> SignalForge 不是一个已经完成的交易系统，而是一个会持续迭代的数据与量化研究框架。
 
-The default database is `quant_trading.db` and live trading is explicitly
-disabled (`LIVE_TRADING_ENABLED=false`). No broker integration or real trading
-logic is included in this step.
+---
 
-## Stage 2: local market data
+## 一、项目定位
 
-The `data/` module reads local CSV OHLCV data into a normalized Pandas
-DataFrame, validates required fields and values, sorts by timestamp, detects
-duplicate `symbol`/`datetime` records, and supports a simulation cutoff
-timestamp. Cutoffs are historical simulation inputs and are never compared
-against the real current date.
+SignalForge 当前的核心思路是：
 
-Market data is intentionally not stored in SQLite yet. Keeping ingestion and
-validation separate from the Step 1 trading schema avoids coupling this stage
-to persistence before a market-data storage model is required.
+> **先做好研究，再考虑交易执行。**
 
-Example:
+项目并不以“自动产生买卖信号”为第一目标，而是尝试建立一套从原始市场数据到研究结论的完整流程：
 
-```bash
-python -c "from data import read_market_csv; print(read_market_csv('data/example_market_data.csv'))"
-```
+市场数据
+↓
+数据校验
+↓
+特征与标签构建
+↓
+量价关系分析
+↓
+市场结构分析
+↓
+市场状态转变检测
+↓
+研究验证
+↓
+风险评估
+↓
+策略研究
 
-## Stage 3: Paper Trading
+当前项目主要用于**量化研究与模拟交易实验**，实盘交易功能暂未启用。
 
-`trading.service.PaperTradingService` executes paper orders immediately at the
-user-supplied price. It creates the order, execution, cash update, and position
-update in one SQLAlchemy transaction. The configurable `COMMISSION_RATE`
-defaults to `0.001`; buy commission is included in the position average cost,
-and sell commission is deducted from realized P&L and cash.
+---
 
-The default paper account is persisted in SQLite. Initial cash is immutable
-after account creation. When a position is fully sold, its row is deleted
-instead of retained at zero so holdings queries only return open positions and
-future analysis does not need to interpret zero-quantity rows.
+## 二、当前已实现
 
-The account schema uses `initial_cash` as the single initial-balance field.
-The former duplicate `initial_funds` field was removed; this development
-database uses SQLAlchemy `create_all`, so no migration is required.
+### 1. 市场数据
 
-This stage does not include a Streamlit application, strategy, indicator,
-news, backtest, broker, or live-trading integration.
+目前项目已经建立基础的历史市场数据处理能力，包括：
 
-## Stage 4: strategy signals
+* OHLCV 数据处理
+* 数据格式与有效性校验
+* 数据来源记录
+* 数据 freshness 信息
+* 历史行情数据处理
 
-`MovingAverageCrossoverStrategy` is read-only: it consumes validated OHLCV
-data and returns a `Signal` without changing accounts, positions, or SQLite.
-It uses only rows at or before the supplied `cutoff`/`simulation_time`.
+数据层的设计目标是让研究所使用的数据更加明确、可追踪。
 
-## Stage 5: risk management
+---
 
-`risk_management` is an independent, read-only evaluator. It returns a
-`RiskResult` containing every rule result, all rejection reasons, and valuation
-metadata. It does not connect to strategies, call `PaperTradingService`, or
-create database records. BUY-only portfolio-ratio rules use post-trade
-positions and value all holdings at the proposed trade price; SELL skips those
-ratio rules.
+### 2. 量化研究框架
 
-## Stage 7: public news
+项目已经建立基础 Research Pipeline，用于将市场数据进一步转化为研究数据。
 
-The independent `news` module normalizes public RSS items into `NewsItemDTO`
-records and persists them in the `news_items` table. It includes adapters for
-China Daily's public China RSS, European Central Bank public press RSS, Federal
-Reserve public press-release RSS, and a China Government policy RSS adapter.
-Refresh is on demand: it fetches, validates, deduplicates by URL and by
-source/title, then commits new rows without deleting existing news. Each
-provider reports `AVAILABLE`, `UNAVAILABLE`, or `ERROR`, with item counts and
-source-specific errors; one provider failure does not stop another.
+目前包括：
 
-The Federal Reserve, ECB, and China Daily feeds were reachable during
-validation. China Daily's feed does not provide a reliable publication field
-for its items, so `published_at` remains null rather than being fabricated.
-The configured China Government RSS endpoint was probed separately and
-returned HTTP 404; its adapter reports `UNAVAILABLE`, and no successful
-government-feed fetch is claimed.
+* Research Condition Comparison
+* Basic Feature Construction
+* Future Return Labels
+* Research Data Split
+* Purged Research Data Split
+* Research Validation Framework
+* Risk Metrics
+* Research Reporting
 
-This is not guaranteed real-time; availability and publisher delay determine
-latency. News is informational only and is not investment advice. The module
-does not generate trading signals, drive the dashboard, schedule jobs, or
-execute trades.
+其中，**Feature、Future Return Label 与 Validation Data 的分离**，用于降低研究过程中发生未来信息泄露（Data Leakage）的风险。
 
-## Stage 8: source freshness and A-share quotes
+---
 
-The `news` and `data` modules expose separate health checks with
-`FRESH`/`STALE`/`OUTDATED`/`UNKNOWN`/`ERROR` statuses. Content timestamps are
-used for `data_age`; fetch time is never treated as content time. Thresholds
-are configured through the `*_FRESH_THRESHOLD_SECONDS` and
-`*_STALE_THRESHOLD_SECONDS` settings.
+### 3. 量价关系研究
 
-The verified public Tencent quote endpoint
-(`https://qt.gtimg.cn/q=sh600000`) requires no API key and returned a quote
-during investigation, but its timestamp was the previous market session
-(`2026-09-07 16:14:45+08:00` at the 2026-09-08 check). With the configured
-24-hour outdated threshold it was measured as `STALE`, not real-time. China Daily was reachable but its sample content
-was from 2017 with no reliable publication timestamp, so news freshness is
-`UNKNOWN`. These results do not trigger trading or modify existing records.
+SignalForge 当前的研究方向之一是：
 
-The specified PBOC URL and both NBS RSS URLs are implemented as explicit
-providers. A live probe on 2026-09-08 returned parseable RSS from PBOC (6
-items), NBS data (500 items), and NBS interpretation (500 items); NBS uses
-its `pubTime` field and PBOC uses its RSS publication field. Refresh can use
-the configured `NEWS_REFRESH_INTERVAL_MINUTES` (default 15) and remains on
-demand; provider failures are isolated and each provider has its own status
-key.
+> **从价格与成交量之间的关系中寻找可以被量化和验证的市场特征。**
 
-The exact Tencent endpoint returned a quote for `600000` during live
-validation (price `9.24`, vendor timestamp `2026-09-08T02:34:58Z`, fetched
-`2026-09-08T02:35:02Z`, measured age about 4 seconds, status `FRESH`). The
-market session is reported separately; no quote is called real-time outside
-the fixed weekday trading windows. The exact Eastmoney endpoint returned HTTP
-200 in an earlier probe and had no reliable timestamp (`UNKNOWN`), but a
-later validation failed with `Remote end closed connection without response`;
-this is reported as a provider error rather than fabricated data. The
-minimal `market_calendar` uses Asia/Shanghai fixed weekday sessions and does
-not include official holiday closures. Primary/fallback selection only calls
-the fallback after a primary error and preserves the selected quote's own
-freshness metadata.
+目前重点关注：
 
-## Stage 6: trading engine
+* Price Movement
+* Volume Changes
+* Volume-Price Relationships
+* Market Activity
+* Price-Volume Structure
 
-`TradingEngine.run_once` coordinates one strategy signal, risk evaluation, and
-paper execution. HOLD stops after the signal; risk rejection never creates an
-order; allowed BUY/SELL uses the exact signal price for both risk and execution
-and passes the signal ID to `PaperTradingService`. Optional valuation-price
-inputs are reserved for future extensions; current risk valuation remains
-configured by the risk module.
+这里的量价分析并不是简单依赖某一个技术指标产生交易信号，而是希望将市场行为转化为可以进入研究流程的结构化变量。
 
-## Checks
+---
 
-```bash
-pytest -q
-python main.py
-```
+### 4. 市场结构分析
 
-## Stage 9: A-share calendar and historical OHLCV
+项目目前已经加入独立的 Market Structure 模块：
 
-`market_calendar` separates date-level trading-day knowledge from intraday
-session classification. It uses `Asia/Shanghai` and exposes `UNKNOWN`,
-`CLOSED`, `PRE_OPEN`, `AUCTION`, `TRADING`, `MIDDAY_BREAK`, `AFTER_HOURS`,
-`HOLIDAY`, and `WEEKEND`. A weekday absent from an explicitly loaded calendar
-is `UNKNOWN`; it is never assumed to be open. The calendar can be loaded from
-a user CSV with `date,is_open` columns.
+research/
+└── structure/
+　　├── **init**.py
+　　└── analyzer.py
 
-`data.historical` provides the `HistoricalDataProvider` interface and a
-`UserCSVHistoricalDataProvider`. CSV rows use the existing normalized
-`symbol,datetime,open,high,low,close,volume` format. Ingestion validates
-positive OHLC values, non-negative volume, timestamps, and symbols; deduplicates
-`symbol`/`datetime`, sorts chronologically, and upserts into the independent
-`market_bars` SQLite table. Each row stores `source` and UTC `fetched_at`, and
-the unique key makes repeated or incremental updates safe.
+该模块用于对市场数据中的结构特征进行分析，为后续研究提供更加明确的结构化变量。
 
-Internally, A-share identifiers are canonicalized to `600000.SH`/`000001.SZ`
-(legacy six-digit inputs remain accepted at the API boundary). Quote adapters
-only produce quote objects; historical adapters produce OHLCV bars. Eastmoney
-is the primary historical upstream and Sina is the independent fallback
-upstream; their HTTP transport and upstream names are retained in fetch
-results. A primary `EMPTY`, `ERROR`, or `UNAVAILABLE` result permits fallback,
-while the selected result's actual source and the primary reason are preserved.
+---
 
-The historical service supports Eastmoney as the primary daily OHLCV provider
-and Sina as the fallback, while `USER_CSV` remains available for trusted local
-exports. Provider results are explicit `SUCCESS`, `EMPTY`, `ERROR`, or
-`UNAVAILABLE` outcomes; each persisted bar records its actual source,
-`FINAL`/`INTRADAY`/`UNKNOWN` status, and UTC `fetched_at`. A fallback result
-retains the primary failure reason. Incremental updates begin at the latest
-stored `symbol`/`datetime` and the database unique constraint prevents
-duplicate bars; the latest date is requested again so an unfinished intraday
-bar can be replaced by a later final bar. The project does not fabricate holidays or treat a
-failed/unknown source as trading data.
+### 5. 市场状态转变检测
+
+项目同时加入 Market Transition 模块：
+
+research/
+└── transition/
+　　├── **init**.py
+　　└── detector.py
+
+主要用于研究不同市场状态之间的变化以及可能存在的结构性转变。
+
+需要说明的是：
+
+> 当前这些模块属于**研究工具**，并不意味着已经形成经过充分验证的预测模型或盈利策略。
+
+---
+
+### 6. Research Validation & Risk
+
+SignalForge 不仅关注历史收益，也加入了研究验证与风险分析框架。
+
+目前包括：
+
+* Validation Split
+* Purged Research Split
+* Risk Metrics
+* Condition Comparison
+* Research Reporting
+
+项目希望逐步回答的不是：
+
+> “这个条件历史上赚不赚钱？”
+
+而是：
+
+> **“这个市场关系是否稳定、可重复，并且具有进一步研究的价值？”**
+
+---
+
+## 三、测试
+
+项目使用 `pytest` 进行自动化测试。
+
+当前版本：
+
+**265 tests passed**
+
+运行测试：
+
+`python -m pytest -q`
+
+随着项目继续开发，测试数量也会持续增加。
+
+---
+
+## 四、项目结构
+
+SignalForge/
+├── data/
+│
+├── research/
+│　　├── structure/
+│　　│　　├── **init**.py
+│　　│　　└── analyzer.py
+│　　│
+│　　├── transition/
+│　　│　　├── **init**.py
+│　　│　　└── detector.py
+│　　│
+│　　└── pipeline.py
+│
+├── tests/
+│　　├── test_structure_analyzer.py
+│　　└── test_transition_detector.py
+│
+└── README.md
+
+项目结构会随着后续研究模块的增加持续调整。
+
+---
+
+## 五、设计原则
+
+### Research First
+
+目前优先建设研究基础设施，而不是直接连接真实资金进行交易。
+
+### 数据与行为优先
+
+当前研究重点放在可以直接从市场数据观察和计算的关系上，包括：
+
+* Price
+* Volume
+* Market Structure
+* Market Transition
+
+技术指标可以作为研究工具，但不会被默认视为有效交易逻辑。
+
+### 可测试
+
+研究逻辑尽可能通过明确的输入、输出和自动化测试进行验证。
+
+### 可复现
+
+研究过程中的数据处理、特征构建、标签定义和验证方法应尽可能明确，使研究结果能够被重复。
+
+### 风险意识
+
+策略研究不仅关注收益，也关注：
+
+* 风险
+* 样本外表现
+* 数据泄露
+* 稳健性
+* 不同市场条件下的表现
+
+---
+
+## 六、当前边界
+
+SignalForge 当前定位为：
+
+**量化研究 + Paper Trading 项目。**
+
+目前**不包括**：
+
+* ❌ 真实资金交易
+* ❌ PTrade 接入
+* ❌ Broker Execution
+* ❌ 高频交易基础设施
+* ❌ 已验证的自动盈利策略
+
+这些内容是否加入，将根据后续研究结果和项目发展逐步决定。
+
+---
+
+## 七、后续计划
+
+SignalForge 会持续开发和更新。
+
+### Research
+
+* [ ] 增加更多量价研究特征
+* [ ] 扩展 Market Structure 分析
+* [ ] 扩展 Market Transition Detection
+* [ ] 增加更多 Research Conditions
+* [ ] 完善 Research Validation
+* [ ] 加强 Out-of-Sample Evaluation
+* [ ] 扩展 Risk Analysis
+
+### Data
+
+* [ ] 更完善的历史行情数据管线
+* [ ] 增加更多数据源
+* [ ] 完善数据质量检查
+* [ ] 扩展不同市场的数据支持
+
+### Strategy
+
+* [ ] 基于研究结果构建候选策略
+* [ ] 策略之间的系统化比较
+* [ ] Paper Trading 持续完善
+* [ ] 更严格的策略评估
+
+### Future
+
+后续是否进入实盘交易、PTrade 等执行层，将在研究框架进一步成熟后再决定。
+
+---
+
+## 八、开发状态
+
+SignalForge 是一个**持续更新中的个人量化研究项目**。
+
+目前的版本并不是项目终点。
+
+随着新的研究假设、数据、测试结果和方法加入，项目中的模块、研究结论和实现方式都会持续调整。
+
+项目会优先保证：
+
+**数据可靠 → 逻辑明确 → 测试充分 → 验证严格 → 再进行策略扩展。**
+
+---
+
+## License
+
+项目目前处于持续开发阶段，License 将在项目进一步稳定后确定。
+
+---
+
+**SignalForge**
+
+*量化研究 · 市场结构 · 持续迭代*
